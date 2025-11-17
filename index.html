@@ -1,21 +1,28 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>N-gram 頻度表</title>
+    <title>N-gram 頻度表 (TSV出力)</title>
     <style>
         body {
             font-family: sans-serif;
             margin: 20px;
         }
-        textarea {
+        textarea#inputText { /* 入力用テキストエリア */
             width: 100%;
             height: 200px;
             margin-bottom: 10px;
             padding: 10px;
             box-sizing: border-box;
+        }
+        textarea#outputResult { /* 出力用テキストエリア */
+            width: 100%;
+            height: 300px; /* 高さを調整 */
+            margin-top: 10px;
+            padding: 10px;
+            box-sizing: border-box;
+            font-family: monospace; /* 結果が見やすいようにフォントを変更 */
         }
         input[type="number"] {
             padding: 5px;
@@ -25,19 +32,6 @@
         button {
             padding: 8px 15px;
             cursor: pointer;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
         }
         .container {
             max-width: 1000px;
@@ -52,29 +46,40 @@
             font-size: 0.9em;
             color: gray;
         }
+        .input-group {
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>N-gram 頻度表ジェネレーター</h1>
+        <h1>N-gram 頻度表ジェネレーター (タブ区切り出力)</h1>
 
         <p class="limit-note">
             ※ 100万文字程度の処理はブラウザの性能に依存し、時間がかかる場合があります。
         </p>
 
         <h2>1. テキスト入力</h2>
-        <textarea id="inputText" placeholder="解析したいテキストを入力してください。ここに100万字程度の文字列を貼り付けます。" rows="10"></textarea>
+        <textarea id="inputText" placeholder="解析したいテキストを入力してください。" rows="10"></textarea>
 
-        <h2>2. N-gram長を指定</h2>
-        <label for="nGramLength">連続する文字数 (N):</label>
-        <input type="number" id="nGramLength" min="1" value="2">
+        <h2>2. 解析条件を指定</h2>
+        <div class="input-group">
+            <label for="nGramLength">連続する文字数 (N):</label>
+            <input type="number" id="nGramLength" min="1" value="2">
+        </div>
+        <div class="input-group">
+            <label for="minFrequency">最低表示頻度 (N回未満は非表示):</label>
+            <input type="number" id="minFrequency" min="1" value="2">
+            <small>(例: 2と入力すると、1回出現のものは非表示)</small>
+        </div>
+
         <button onclick="analyzeText()">頻度表を生成</button>
         <p id="errorMsg" class="error"></p>
 
-        <h2>3. 頻度表結果</h2>
-        <div id="resultTable">
-            <p>「頻度表を生成」ボタンを押すと結果が表示されます。</p>
-        </div>
+        <h2>3. 頻度表結果 (タブ区切り)</h2>
+        <p>左の列がN-gram、右の列が頻度です。コピーして表計算ソフトなどに貼り付けられます。</p>
+        <textarea id="outputResult" readonly placeholder="「頻度表を生成」ボタンを押すと結果がタブ区切りで表示されます。"></textarea>
+
     </div>
 
     <script>
@@ -84,75 +89,72 @@
         function analyzeText() {
             const text = document.getElementById('inputText').value;
             const n = parseInt(document.getElementById('nGramLength').value);
-            const resultDiv = document.getElementById('resultTable');
+            const minFrequency = parseInt(document.getElementById('minFrequency').value);
+            
+            // 出力要素をtextareaに変更
+            const outputArea = document.getElementById('outputResult');
             const errorMsg = document.getElementById('errorMsg');
             
             errorMsg.textContent = '';
-            resultDiv.innerHTML = '<p>解析中...</p>';
+            outputArea.value = '解析中...';
 
+            // バリデーションチェック (前回のコードから変更なし)
             if (isNaN(n) || n < 1) {
                 errorMsg.textContent = 'エラー: 連続文字数 (N) は1以上の整数を入力してください。';
-                resultDiv.innerHTML = '';
+                outputArea.value = '';
                 return;
             }
-
+            if (isNaN(minFrequency) || minFrequency < 1) {
+                errorMsg.textContent = 'エラー: 最低表示頻度は1以上の整数を入力してください。';
+                outputArea.value = '';
+                return;
+            }
             if (text.length === 0) {
                 errorMsg.textContent = 'エラー: 解析するテキストを入力してください。';
-                resultDiv.innerHTML = '';
+                outputArea.value = '';
                 return;
             }
 
-            // N-gramの頻度をカウント
+            // N-gramの頻度をカウント (変更なし)
             const frequencyMap = new Map();
             const maxLen = text.length - n + 1;
 
-            // ループ処理をWeb Workerまたは非同期処理で分離すると
-            // 100万文字のような大規模データでもUIフリーズを防げますが、
-            // シンプルさのため、ここではメインスレッドで実行します。
-            // 処理が重い場合はブラウザが警告を出すことがあります。
             for (let i = 0; i < maxLen; i++) {
                 const ngram = text.substring(i, i + n);
-                // スペースや記号を無視する場合は、ここでフィルタリングロジックを追加
-                // 例: if (ngram.trim().length !== n) continue;
-
                 frequencyMap.set(ngram, (frequencyMap.get(ngram) || 0) + 1);
             }
 
-            // Mapを配列に変換し、頻度の降順でソート
-            const sortedFrequencies = Array.from(frequencyMap.entries())
-                .sort((a, b) => b[1] - a[1]); // b[1] (頻度) - a[1] (頻度) で降順ソート
+            // Mapを配列に変換
+            let sortedFrequencies = Array.from(frequencyMap.entries());
+            
+            // フィルタリング (minFrequency以上のものだけを保持)
+            sortedFrequencies = sortedFrequencies.filter(([, count]) => count >= minFrequency);
+            
+            // 頻度の降順でソート 
+            sortedFrequencies.sort((a, b) => b[1] - a[1]); 
 
-            // 結果テーブルのHTMLを生成
-            let tableHTML = '<table>';
-            tableHTML += '<thead><tr><th>N-gram (連続文字列)</th><th>出現頻度</th></tr></thead>';
-            tableHTML += '<tbody>';
+            // --- タブ区切り文字列の生成ロジックに変更 ---
+            
+            let outputText = '';
+            
+            if (sortedFrequencies.length === 0) {
+                outputText = `最低表示頻度 ${minFrequency}回 以上のN-gramは見つかりませんでした。`;
+            } else {
+                // ヘッダー行 (タブ区切り)
+                outputText += "N-gram\t頻度\n";
 
-            // 上位N件など、表示件数を制限することも可能ですが、ここでは全て表示
-            for (const [ngram, count] of sortedFrequencies) {
-                tableHTML += `<tr><td>${escapeHTML(ngram)}</td><td>${count}</td></tr>`;
+                // データ行をタブ区切りで追加
+                for (const [ngram, count] of sortedFrequencies) {
+                    // N-gramと頻度をタブ (\t) で区切り、改行 (\n) で次の行へ
+                    // CSVと異なり、タブ区切りでは通常、引用符は不要ですが、念のため
+                    // データ内にタブや改行がないことを確認するか、エスケープが必要です。
+                    // 簡単化のため、ここでは単純に出力します。
+                    outputText += `${ngram}\t${count}\n`;
+                }
             }
 
-            tableHTML += '</tbody></table>';
-
-            resultDiv.innerHTML = tableHTML;
-        }
-
-        /**
-         * HTML特殊文字のエスケープ処理
-         * @param {string} str - エスケープ対象の文字列
-         * @returns {string} エスケープ後の文字列
-         */
-        function escapeHTML(str) {
-            return str.replace(/[&<>"']/g, function(match) {
-                const escape = {
-                    '&': '&amp;',
-                    '<': '&lt;',
-                    '>': '&gt;',
-                    '"': '&quot;',
-                    "'": '&#39;'
-                };
-                return escape[match];
-            });
+            // 結果を新しいtextareaに出力
+            outputArea.value = outputText;
         }
     </script>
     </div>
